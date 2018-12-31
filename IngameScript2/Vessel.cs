@@ -10,7 +10,7 @@ namespace IngameScript
 {
     partial class Program
     {
-        abstract class Vessel
+        public abstract class Vessel
         {
             public const double PrecisionMaxAngularVel = 0.6; //Maximum Precision Ship Angular Velocity
             public const double RotationalSensitvity = 1; //Gain Applied To Gyros
@@ -22,11 +22,20 @@ namespace IngameScript
             internal int COORD_ID = 0;
             internal List<Vector3D> DOCK_ROUTE = new List<Vector3D>();
 
+            public Vector3D Position => RC.CubeGrid.GetPosition();
+
             public Vessel(MyGridProgram grid)
             {
                 _grid = grid;
                 InitVessel(_grid, this);
 
+                PartValidation();
+
+                _grid.Echo("Vessel initialization complete");
+            }
+
+            void PartValidation()
+            {
                 if (RC == null || RC.CubeGrid.GetCubeBlock(RC.Position) == null)
                     new Exception("No Remote Control Found,\nInstall Forward Facing Remote Control Block And Press Recompile");
                 if (CONNECTOR == null || CONNECTOR.CubeGrid.GetCubeBlock(CONNECTOR.Position) == null)
@@ -42,8 +51,6 @@ namespace IngameScript
                       "Remove Unecessary Thrusters And Press Recompile (15 max)\n" +
                       "This safety measure can be disabled on line 56");
                 }
-
-                _grid.Echo("Vessel initialization complete");
             }
 
             private void InitVessel(MyGridProgram grid, Vessel vessel)
@@ -51,13 +58,14 @@ namespace IngameScript
                 var Me = grid.Me;
                 var GridTerminalSystem = grid.GridTerminalSystem;
                 //Gathers Remote Control
-                try
+
                 {
                     List<IMyRemoteControl> TEMP_RC = new List<IMyRemoteControl>();
                     GridTerminalSystem.GetBlocksOfType(TEMP_RC, b => b.CubeGrid == Me.CubeGrid);
-                    vessel.RC = TEMP_RC[0];
+                    if (!TEMP_RC.Any())
+                        throw new Exception("No Remote Control Found. Install Forward Facing Remote Control Block And Press Recompile");
+                    vessel.RC = TEMP_RC.First();
                 }
-                catch { }
 
                 //GathersConnector  
                 try
@@ -89,7 +97,7 @@ namespace IngameScript
                 //Runs Thruster Setup 
                 try
                 {
-                    CollectAndFire2(new Vector3D(), 0, 0, RC.GetPosition(), RC);
+                    CollectAndFire2(new Vector3D(), 0, 0, RC.CubeGrid.GetPosition(), RC);
                     for (int j = 0; j < CAF2_THRUST.Count; j++)
                     { CAF2_THRUST[j].SetValue<float>("Override", 0.0f); CAF2_THRUST[j].ApplyAction("OnOff_On"); }
                 }
@@ -141,26 +149,30 @@ namespace IngameScript
 
             void CollectAndFire2(Vector3D INPUT_POINT, double INPUT_VELOCITY, double INPUT_MAX_VELOCITY, Vector3D REFPOS, IMyRemoteControl RC)
             {
+                var GridTerminalSystem = _grid.GridTerminalSystem;
+                var Me = _grid.Me;
+                var Echo = _grid.Echo;
+
                 //Function Initialisation
                 //-------------------------------------------------------------------- 
                 if (C_A_F_HASRUN == false)
                 {
                     //Initialise Classes And Basic System
-                    CAF2_FORWARD = new Thrust_info(RC.WorldMatrix.Forward, _grid.GridTerminalSystem, _grid.Me.CubeGrid);
-                    CAF2_UP = new Thrust_info(RC.WorldMatrix.Up, _grid.GridTerminalSystem, _grid.Me.CubeGrid);
-                    CAF2_RIGHT = new Thrust_info(RC.WorldMatrix.Right, _grid.GridTerminalSystem, _grid.Me.CubeGrid);
+                    CAF2_FORWARD = new Thrust_info(RC.WorldMatrix.Forward, GridTerminalSystem, Me.CubeGrid);
+                    CAF2_UP = new Thrust_info(RC.WorldMatrix.Up, GridTerminalSystem, Me.CubeGrid);
+                    CAF2_RIGHT = new Thrust_info(RC.WorldMatrix.Right, GridTerminalSystem, Me.CubeGrid);
                     CAFTHI = new List<Thrust_info>() { CAF2_FORWARD, CAF2_UP, CAF2_RIGHT };
-                    _grid.GridTerminalSystem.GetBlocksOfType(CAF2_THRUST, block => block.CubeGrid == _grid.Me.CubeGrid);
+                    GridTerminalSystem.GetBlocksOfType<IMyThrust>(CAF2_THRUST, block => block.CubeGrid == Me.CubeGrid);
                     C_A_F_HASRUN = true;
 
                     //Initialises Braking Component
                     foreach (var item in CAFTHI)
                     {
-                        CAF2_BRAKING_COUNT = Math.Min(item.PositiveMaxForce, CAF2_BRAKING_COUNT);
-                        CAF2_BRAKING_COUNT = (item.NegativeMaxForce < CAF2_BRAKING_COUNT) ? item.PositiveMaxForce : CAF2_BRAKING_COUNT;
+                        CAF2_BRAKING_COUNT = (item.PositiveMaxForce < CAF2_BRAKING_COUNT) ? item.PositiveMaxForce : CAF2_BRAKING_COUNT;
+                        CAF2_BRAKING_COUNT = (item.NegativeMaxForce < CAF2_BRAKING_COUNT) ? item.NegativeMaxForce : CAF2_BRAKING_COUNT;
                     }
                 }
-                _grid.Echo("Running Thruster Control Program");
+                Echo("Running Thruster Control Program");
 
                 //Generating Maths To Point and decelleration information etc.
                 //-------------------------------------------------------------------- 
@@ -173,8 +185,8 @@ namespace IngameScript
 
                 //If Within Stopping Distance Halts Programme
                 //--------------------------------------------
-                if (!(CAF_DIST_TO_TARGET > (CAF_STOPPING_DIST + 0.25)) || CAF_DIST_TO_TARGET < 0.25 || VELOCITY > INPUT_MAX_VELOCITY)
-                { foreach (var thruster in CAF2_THRUST) { (thruster).ThrustOverride = 0; } return; }
+                if ((CAF_DIST_TO_TARGET <= (CAF_STOPPING_DIST + 0.25)) || CAF_DIST_TO_TARGET < 0.25 || VELOCITY > INPUT_MAX_VELOCITY)
+                { foreach (var thruster in CAF2_THRUST) { thruster.ThrustOverride = 0; } return; }
                 //dev notes, this is the most major source of discontinuity between theorised system response
 
                 //Reflects Vector To Cancel Orbiting
@@ -203,6 +215,7 @@ namespace IngameScript
                 double U_COMP_PROJ = U_COMP_IN * MAX_FORCE;
                 double R_COMP_PROJ = R_COMP_IN * MAX_FORCE;
                 double MULTIPLIER = 1;
+                
                 MULTIPLIER = Math.Min(F_COMP_MAX / F_COMP_PROJ , MULTIPLIER);
                 MULTIPLIER = Math.Min(U_COMP_MAX / U_COMP_PROJ , MULTIPLIER);
                 MULTIPLIER = Math.Min(R_COMP_MAX / R_COMP_PROJ , MULTIPLIER);
@@ -216,17 +229,22 @@ namespace IngameScript
                 //Runs System Thrust Application 
                 //----------------------------------
                 Dictionary<IMyThrust, float> THRUSTVALUES = new Dictionary<IMyThrust, float>();
-                foreach (var thruster in CAF2_THRUST) { THRUSTVALUES.Add((thruster), 0f); }
+                foreach (var thruster in CAF2_THRUST) { THRUSTVALUES.Add(thruster, 0f); }
 
                 foreach (var THRUSTSYSTM in CAFTHI)
                 {
                     List<IMyThrust> POSTHRUST = THRUSTSYSTM.PositiveThrusters;
                     List<IMyThrust> NEGTHRUST = THRUSTSYSTM.NegativeThrusters;
                     if (THRUSTSYSTM.VCF < 0) { POSTHRUST = THRUSTSYSTM.NegativeThrusters; NEGTHRUST = THRUSTSYSTM.PositiveThrusters; }
-                    foreach (var thruster in POSTHRUST) { THRUSTVALUES[thruster] = (float)(Math.Abs(THRUSTSYSTM.VCF)) * (thruster).MaxThrust; }
+                    foreach (var thruster in POSTHRUST) { THRUSTVALUES[thruster] = (float)(Math.Abs(THRUSTSYSTM.VCF)) * (thruster as IMyThrust).MaxThrust; }
                     foreach (var thruster in NEGTHRUST) { THRUSTVALUES[thruster] = 1; }//(float)0.01001;}
                     foreach (var thruster in THRUSTVALUES) { thruster.Key.ThrustOverride = thruster.Value; } //thruster.Key.ThrustOverride = thruster.Value;
                 }
+            }
+
+            internal void Run()
+            {
+                PartValidation();
             }
 
             protected void Vector_Thrust_Manager(Vector3D PM_START, Vector3D PM_TARGET, Vector3D PM_REF, double PR_MAX_VELOCITY, double PREC, IMyRemoteControl RC)
@@ -235,10 +253,19 @@ namespace IngameScript
                 Vector3D GOTOPOINT = PM_TARGET + VECTOR * MathHelper.Clamp((((PM_REF - PM_TARGET).Length() - 0.2)), 0, (PM_START - PM_TARGET).Length());
                 double DIST_TO_POINT = MathHelper.Clamp((GOTOPOINT - PM_REF).Length(), 0, (PM_START - PM_TARGET).Length());
 
+                // get max thrust per 6 degrees, take min as thrust
+                var twr = CAFTHI.Min(t => Math.Min(t.NegativeMaxForce, t.PositiveMaxForce)) / (double)RC.CalculateShipMass().PhysicalMass;
+                
                 if (DIST_TO_POINT > PREC)
-                { CollectAndFire2(GOTOPOINT, 0, PR_MAX_VELOCITY * 2, PM_REF, RC); }
+                {
+                    _grid.Echo($"Goto Point: {twr}");
+                    CollectAndFire2(GOTOPOINT, 0, twr, PM_REF, RC);
+                }
                 else
-                { CollectAndFire2(PM_TARGET, 0, PR_MAX_VELOCITY, PM_REF, RC); }
+                {
+                    _grid.Echo($"Forward from point: {twr}");
+                    CollectAndFire2(PM_TARGET, 0, twr, PM_REF, RC);
+                }
             }
 
             protected static void GyroTurn6(Vector3D TARGET, double GAIN, IMyGyro GYRO, IMyRemoteControl REF_RC, double ROLLANGLE, double MAXANGULARVELOCITY)
@@ -250,7 +277,7 @@ namespace IngameScript
                 //Detect Forward, Up & Pos
                 Vector3D ShipForward = REF_RC.WorldMatrix.Forward;
                 Vector3D ShipUp = REF_RC.WorldMatrix.Up;
-                Vector3D ShipPos = REF_RC.GetPosition();
+                Vector3D ShipPos = REF_RC.CubeGrid.GetPosition();
 
                 //Create And Use Inverse Quatinion                   
                 Quaternion Quat_Two = Quaternion.CreateFromForwardUp(ShipForward, ShipUp);
@@ -332,7 +359,7 @@ namespace IngameScript
 
                 //Logic checks and iterates
                 if (Docking == false && COORD_ID == 0) { }
-                else if ((CONNECTOR.GetPosition() - COORDINATES[COORD_ID - CurrentID]).Length() < 1 || ((RC.GetPosition() - COORDINATES[COORD_ID - CurrentID]).Length() < 10 && COORD_ID == 0))
+                else if ((CONNECTOR.GetPosition() - COORDINATES[COORD_ID - CurrentID]).Length() < 1 || ((RC.CubeGrid.GetPosition() - COORDINATES[COORD_ID - CurrentID]).Length() < 10 && COORD_ID == 0))
                 {
                     COORD_ID = COORD_ID + iter_er;
                     if (COORD_ID == COORDINATES.Count)
@@ -355,20 +382,21 @@ namespace IngameScript
                 return RC.WorldMatrix.Down;
             }
 
-            protected void RC_Manager(Vector3D TARGET, IMyRemoteControl RC, bool TURN_ONLY)
+            protected static void RC_Manager(Vector3D TARGET, IMyRemoteControl RC, bool TURN_ONLY = false)
             {
                 //Uses Rotation Control To Handle Max Rotational Velocity
                 //---------------------------------------------------------
                 if (RC.GetShipVelocities().AngularVelocity.AbsMax() > PrecisionMaxAngularVel)
                 {
-                    _grid.Echo("Slowing Rotational Velocity");
-                    RC.SetAutoPilotEnabled(false);
+                    //_grid.Echo("Slowing Rotational Velocity");
+                    if (RC.IsAutoPilotEnabled)
+                        RC.SetAutoPilotEnabled(false);
                     return;
                 }
 
                 //Setup Of Common Variables                         
                 //--------------------------------------------
-                Vector3D DronePosition = RC.GetPosition();
+                Vector3D DronePosition = RC.CubeGrid.GetPosition();
                 Vector3D Drone_To_Target = Vector3D.Normalize(TARGET - DronePosition);
 
                 //Override Direction Detection
@@ -383,7 +411,8 @@ namespace IngameScript
                     RC.ClearWaypoints();
                     RC.AddWaypoint(TARGET, "1");
                     RC.AddWaypoint(TARGET, "cc1");
-                    RC.ApplyAction("AutoPilot_On");
+                    if (!RC.IsAutoPilotEnabled)
+                        RC.ApplyAction("AutoPilot_On");
                     RC.ApplyAction("CollisionAvoidance_Off");
                     RC.ControlThrusters = false;
                     return;
@@ -393,7 +422,7 @@ namespace IngameScript
                 //-----------------------------
                 if (To_Target_Angle < 0.4 && Ship_Velocity > 3)
                 {
-                    _grid.Echo("Drift Cancellation Enabled");
+                    //_grid.Echo("Drift Cancellation Enabled");
 
                     //Aim Gyro To Reflected Vector
                     Vector3D DRIFT_VECTOR = Vector3D.Normalize(RC.GetShipVelocities().LinearVelocity);
@@ -413,16 +442,17 @@ namespace IngameScript
                 //---------------------------
                 else
                 {
-                    _grid.Echo("Drift Cancellation Disabled");
+                    //_grid.Echo("Drift Cancellation Disabled");
 
                     //Assign To RC, Clear And Refresh Command                         
                     RC.ClearWaypoints();
                     RC.ControlThrusters = true;
                     RC.AddWaypoint(TARGET, "1");
                     RC.AddWaypoint(TARGET, "cc1");
-                    RC.ApplyAction("AutoPilot_On");                   //RC toggle 
-                    RC.ApplyAction("DockingMode_Off");                //Precision Mode
-                    RC.ApplyAction("CollisionAvoidance_On");          //Col avoidance
+                    if(!RC.IsAutoPilotEnabled)
+                        RC.ApplyAction("AutoPilot_On");             //RC toggle 
+                    RC.ApplyAction("DockingMode_Off");              //Precision Mode
+                    RC.ApplyAction("CollisionAvoidance_On");        //Col avoidance
 
                 }
             }

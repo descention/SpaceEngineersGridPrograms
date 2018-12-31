@@ -101,6 +101,7 @@
     <AdditionalFiles Include="MDK\MDK.options">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </AdditionalFiles>
+    <Compile Include="MiningJob.cs" />
     <Compile Include="MiningVessel.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Readme.cs" />

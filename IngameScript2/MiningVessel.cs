@@ -9,7 +9,7 @@ namespace IngameScript
 {
     partial class Program
     {
-        class MiningVessel : Vessel
+        public class MiningVessel : Vessel
         {
             List<IMyLargeTurretBase> DIRECTORS = new List<IMyLargeTurretBase>();
             IMyRadioAntenna RADIO;
@@ -18,8 +18,8 @@ namespace IngameScript
             List<IMyUserControllableGun> DIRECTIONAL_FIRE = new List<IMyUserControllableGun>();  //Directional ship weaponry
             List<IMyShipDrill> SHIP_DRILLS = new List<IMyShipDrill>();     //List Of all the ships drills
 
-            public Asteroid TargetAsteroid { get; set; }
-            public bool ISNOTBURIED { get; set; }
+            internal MiningJob job;
+
             public string MiningStatus { get; internal set; }
             public bool FinishedBore { get; internal set; }
 
@@ -28,7 +28,7 @@ namespace IngameScript
                 InitMiner(grid, this);
             }
 
-            private double SHIPSIZE => Math.Sqrt(SHIP_DRILLS.Count) * 0.9 * (_grid.Me.CubeGrid.ToString().Contains("Large") ? 1.5 : 1.0);
+            public double SHIPSIZE => Math.Sqrt(SHIP_DRILLS.Count) * 0.9 * (_grid.Me.CubeGrid.ToString().Contains("Large") ? 1.5 : 1.0);
 
             private static void InitMiner(MyGridProgram grid, MiningVessel miner)
             {
@@ -90,7 +90,7 @@ namespace IngameScript
                 {
                     if (string.IsNullOrWhiteSpace(Me.CustomData))
                         Me.CustomData = "Paste Asteroid GPS Here: \n===========================\n" +
-                            (miner.TargetAsteroid != null ? $"@GPS:Mine:{miner.TargetAsteroid.Location.X}:{miner.TargetAsteroid.Location.Y}:{miner.TargetAsteroid.Location.Z}@\n" : "@paste gps string here@\n") +
+                            (miner.job.TargetAsteroid != null ? $"@GPS:Mine:{miner.job.TargetAsteroid.Location.X}:{miner.job.TargetAsteroid.Location.Y}:{miner.job.TargetAsteroid.Location.Z}@\n" : "@paste gps string here@\n") +
                             "\nInstructions:\n===========================\nPaste GPS coords of point NEAR asteroid\nbetween the symbols." +
                             "\nDo NOT include the 'at' symbol in the GPS name\nErrors Will be displayed in the terminal\n\n" +
                             "Hints/Tips:\n===========================\n" +
@@ -109,28 +109,11 @@ namespace IngameScript
 
             public void BoreMine(Asteroid asteroid, bool reset = false)
             {
-                //Setup Of Common Variables                         
+                _grid.Echo($"BoreMine: {job.Row}, {job.Column}");
+                _grid.Echo($"Distance: {job.GetDistanceFromBoreStart}, {job.GetDistanceFromBoreEnd}");
+                //Setup Of Common Variables
                 Vector3D DronePosition = RC.GetPosition();
                 Vector3D Drone_To_Target = Vector3D.Normalize(asteroid.Centre - DronePosition);
-
-                //Generates XYZ Vectors
-                Vector3D X_ADD = Vector3D.Normalize(asteroid.Centre - asteroid.Location);//Characteristic 'Forward' vector 
-                Vector3D Y_ADD = Vector3D.CalculatePerpendicularVector(X_ADD); //Characteristic 'Left' vector
-                Vector3D Z_ADD = Vector3D.Cross(X_ADD, Y_ADD); //Characteristic 'Up' vector
-
-                //Generates Array Of Starting Vectors
-                int Steps = MathHelper.Clamp((int)((asteroid.Diameter * 0.3) / SHIPSIZE), 1, 16); //How many horizontal passes of the ship are required to eat the roid
-                //double StepSize = SHIPSIZE;  //How big are those passes
-                Vector3D[,] GridCoords = new Vector3D[Steps + 1, Steps + 1]; //i as asteroid.Row, j as asteroid.Column
-                for (int i = 0; i < (Steps + 1); i++)
-                {
-                    for (int j = 0; j < (Steps + 1); j++)
-                    {
-                        Vector3D Ipos = (Math.Pow(-1, i) == -1) ? asteroid.Location + SHIPSIZE * (i - 1) * -1 * Z_ADD : asteroid.Location + SHIPSIZE * i * Z_ADD;
-                        Vector3D Jpos = (Math.Pow(-1, j) == -1) ? Ipos + SHIPSIZE * (j - 1) * -1 * Y_ADD : Ipos + SHIPSIZE * j * Y_ADD;
-                        GridCoords[i, j] = Jpos;
-                    }
-                }
 
                 //Readouts
                 //Echo("Has Finished Tunnel: " + asteroid.Finished);
@@ -140,56 +123,66 @@ namespace IngameScript
                 //Echo((CurrentVectorEnd - DronePosition).Length() + " dist to iter++");
 
                 //Generates Currently Targeted Vector As A Function Of 2 integers, asteroid.Row and Depth 
-                Vector3D CurrentVectorStart = GridCoords[asteroid.Row, asteroid.Column]; //Start Vector
-                Vector3D CurrentVectorEnd = CurrentVectorStart + X_ADD * (((asteroid.Centre - asteroid.Location).Length() - asteroid.Diameter / 2) + asteroid.Diameter * 0.8); //Accounts for small input
+                
+                if(!job.IsValid)
+                {
+                    _grid.Echo("Looks like an invalid asteroid");
+                }
 
                 //Sets IsBuried And Has Finished
-                ISNOTBURIED = (CurrentVectorStart - RC.GetPosition()).Length() < 4; //If Retracted Allows Switching Of Case
-                if ((CurrentVectorEnd - DronePosition).Length() < 1)
+                if (job.GetDistanceFromBoreEnd < 1)
                     FinishedBore = true; //If Reached End Toggle Finished
 
                 //Inputs To Autopilot Function
-                double RollReqt = (float)(0.6 * (Vector3D.Dot(Z_ADD, RC.WorldMatrix.Down)));
-                GyroTurn6(X_ADD * 999999999999999999, RotationalSensitvity, GYRO, RC, RollReqt, PrecisionMaxAngularVel);
+                double RollReqt = (float)(0.6 * (Vector3D.Dot(job.Up, RC.WorldMatrix.Down)));
+                GyroTurn6(job.Forward * 999999999999999999, RotationalSensitvity, GYRO, RC, RollReqt, PrecisionMaxAngularVel);
 
                 if (FinishedBore) //Reverses Once Finished
                 {
-                    Vector_Thrust_Manager(CurrentVectorEnd, CurrentVectorStart, RC.GetPosition(), 2, 0.5, RC);
+                    _grid.Echo("Bore out");
+                    Vector_Thrust_Manager(job.CurrentVectorEnd, job.CurrentVectorStart, Position, 2, 0.5, RC);
                 }
                 else //else standard forward
                 {
-                    Vector_Thrust_Manager(CurrentVectorStart, CurrentVectorEnd, RC.GetPosition(), 1, 0.5, RC);
+                    _grid.Echo("Bore in");
+                    Vector_Thrust_Manager(job.CurrentVectorStart, job.CurrentVectorEnd, Position, 1, 0.5, RC);
                 }
 
                 //Iterates Based On Proximity
-                if ((CurrentVectorStart - DronePosition).Length() < 1 && asteroid.Row == Steps && asteroid.Column == Steps && FinishedBore)
-                {
-                    MiningStatus = "FIN";
-                    return;
-                }
+                if (job.GetDistanceFromBoreStart < 1) {
+                    if (job.Row == job.Steps && job.Column == job.Steps && FinishedBore)
+                    {
+                        MiningStatus = "FIN";
+                        return;
+                    }
 
-                if ((CurrentVectorStart - DronePosition).Length() < 1 && asteroid.Row == Steps && FinishedBore)
-                {
-                    asteroid.Column++;
-                    asteroid.Row = 1;
-                    FinishedBore = false;
+                    if ( job.Row == job.Steps && FinishedBore)
+                    {
+                        job.Column++;
+                        job.Row = 1;
+                        FinishedBore = false;
+                    }
+                    else if (FinishedBore)
+                    {
+                        job.Row++;
+                        FinishedBore = false;
+                    }
                 }
-
-                if ((CurrentVectorStart - DronePosition).Length() < 1 && FinishedBore)
-                {
-                    asteroid.Row++;
-                    FinishedBore = false;
-                }
-
             }
 
-            internal void Run()
+            internal new void Run()
             {
-                if (ISNOTBURIED)
+                base.Run();
+
+                if (job == null)
                 { // update target asteroid
                     try
                     {
+                        if (string.IsNullOrWhiteSpace(_grid.Me.CustomData))
+                            throw new Exception("Initialization error. Missing @GPS@ in Custom Data.");
+
                         string[] InputData = _grid.Me.CustomData.Split('@');
+
                         string[] InputGpsList = InputData[1].Split(':');
                         double X;
                         double.TryParse(InputGpsList[2], out X);
@@ -202,10 +195,11 @@ namespace IngameScript
 
                         Vector3D TryVector = new Vector3D(X, Y, Z);
 
-                        if (TargetAsteroid == null || TryVector != TargetAsteroid.Location)
+                        if (job == null || job.TargetAsteroid == null || TryVector != job.TargetAsteroid.Location)
                         {
-                            TargetAsteroid = new Asteroid(TryVector);
-                            //MiningLogic(DOCKLIST);
+                            var asteroid = new Asteroid(TryVector);
+                            job = new MiningJob(asteroid, this);
+                            
                             MiningLogic();
                             _grid.Echo("Updated Input Correctly");
                             return;
@@ -220,12 +214,13 @@ namespace IngameScript
                             _grid.Echo(ex.InnerException.Message);
                             _grid.Echo(ex.InnerException.StackTrace);
                         }
+                        return;
                     }
                 }
 
                 //Sets If Full Or Not
                 bool IsEmpty = Cargo.All(cargo => cargo.GetInventory(0).CurrentMass <= 900) && SHIP_DRILLS.All(drill=>drill.GetInventory().CurrentMass < 100);
-                bool IsMassAboveThreshold = (double)SHIP_DRILLS[0].GetInventory().CurrentVolume > (double)SHIP_DRILLS[0].GetInventory().MaxVolume * 0.80;
+                bool IsMassAboveThreshold = SHIP_DRILLS.Sum(drill=> (double)drill.GetInventory().CurrentVolume) > SHIP_DRILLS.Sum(drill=> (double)drill.GetInventory().MaxVolume) * 0.80;
 
                 //if (IsMassAboveThreshold)
                 //    Echo("Drill Inventory Is Currently Full");
@@ -249,33 +244,42 @@ namespace IngameScript
                     SENSOR.DetectOwner = false;
                     SENSOR.DetectLargeShips = false;
                     SENSOR.DetectSmallShips = false;
-                    SENSOR.LeftExtend = 50;
-                    SENSOR.RightExtend = 50;
-                    SENSOR.TopExtend = 50;
-                    SENSOR.FrontExtend = 50;
-                    SENSOR.BottomExtend = 50;
-                    SENSOR.BackExtend = 50;
+                    
+                    SENSOR.LeftExtend = SENSOR.MaxRange;
+                    SENSOR.RightExtend = SENSOR.MaxRange;
+                    SENSOR.TopExtend = SENSOR.MaxRange;
+                    SENSOR.FrontExtend = SENSOR.MaxRange;
+                    SENSOR.BottomExtend = SENSOR.MaxRange;
+                    SENSOR.BackExtend = SENSOR.MaxRange;
                 }
 
                 //Runs Primary Mnining Logic (only if not 0,0,0)
                 //-------------------------------------------------
-                _grid.Echo("CurrentRoid: " + Vector3D.Round(TargetAsteroid.Location));
-                _grid.Echo("CurrentCentre: " + Vector3D.Round(TargetAsteroid.Centre));
-                _grid.Echo("CurrentRoidSize: " + Math.Round(TargetAsteroid.Diameter) + " Metres");
+                _grid.Echo(job.ToString());
 
                 //Echo("Is Vanilla RC A: " + Math.Round(TargetAsteroid.Diameter) + " Metres");
-                _grid.Echo("Outside Asteroid? " + ISNOTBURIED);
-                //Echo("Runtime: " + Math.Round(Runtime.LastRunTimeMs, 3) + " Ms");
+                if (job?.TargetAsteroid != null)
+                    _grid.Echo("Inside Asteroid? " + job.IsInsideAsteroidSoi);
+                else
+                    _grid.Echo("No asteroid set");
 
+                //Echo("Runtime: " + Math.Round(Runtime.LastRunTimeMs, 3) + " Ms");
+                _grid.Echo($"Status: {MiningStatus}");
                 MiningLogic();
             }
 
             void MiningLogic()
             {
+                if((SENSOR.LastDetectedEntity.BoundingBox.Center - Position).Length() < SENSOR.LastDetectedEntity.BoundingBox.Size.Length())
+                { // we're inside the asteroid
+                    if(job.TargetAsteroid.RequiresUpdate)
+                        job.UpdateAsteroid(SENSOR.LastDetectedEntity.BoundingBox);
+                }
+
                 //Echo("Mining Logic:\n--------------");
 
                 //Sets Drills:
-                if (SHIP_DRILLS[0].IsWorking == false && MiningStatus == "MINE" && TargetAsteroid.AbleToMineFrom(_grid.Me.GetPosition()))
+                if (MiningStatus == "MINE" && job.IsInsideAsteroidSoi)
                 {
                     foreach(var drill in SHIP_DRILLS)
                         drill.Enabled = true;
@@ -295,7 +299,7 @@ namespace IngameScript
                 }
 
                 //If Fin, then Stop operations (stage 4)
-                if ((MiningStatus == "FIN" || MiningStatus == "FULL") && ISNOTBURIED)
+                if ((MiningStatus == "FIN" || MiningStatus == "FULL") && !job.IsInsideAsteroidSoi)
                 {
                     DockingIterator(true, DOCK_ROUTE);
 
@@ -311,32 +315,35 @@ namespace IngameScript
                 {
 
                     //Uses Sensor To Update Information On Asteroid Within 250m of Selected Asteroid (prevents Close Proximity Asteroid Failure)
-                    if (SENSOR.IsActive && (TargetAsteroid.Location - RC.GetPosition()).Length() < 50 && TargetAsteroid.Centre == TargetAsteroid.Location)
-                        TargetAsteroid.UpdateInfo(SENSOR.LastDetectedEntity.BoundingBox);
+                    if (SENSOR.IsActive && job.GetDistanceFrom(Position) < 50 && job.TargetAsteroid.RequiresUpdate)
+                        job.UpdateAsteroid(SENSOR.LastDetectedEntity.BoundingBox);
 
                     //If No Asteroid Detected Goes To Location To Detect Asteroid
-                    if (TargetAsteroid.Diameter == 0)
+                    if (job.TargetAsteroid.Diameter == 0)
                     {
-                        RC_Manager(TargetAsteroid.Location, RC, false);
+                        RC_Manager(job.TargetAsteroid.Location, RC, false);
                         return; //No Need For Remainder Of Logic
                     }
 
                     //Goes To Location And Mines
-                    if (TargetAsteroid.AbleToMineFrom(RC.GetPosition()) == false)
+                    if (job.TargetAsteroid.AbleToMineFrom(RC.GetPosition()) == false && !job.IsInsideAsteroidSoi)
                     {
-                        RC_Manager(TargetAsteroid.Location, RC, false);
-                        ISNOTBURIED = true;
+                        RC_Manager(job.TargetAsteroid.Location, RC, false);
+                        _grid.Echo("Status: Locating");
                     }
                     else
                     {
-                        if (TargetAsteroid.Diameter > SHIPSIZE) //Only if drill size is bigger than ship 9prevents array handlign issues
-                            BoreMine(TargetAsteroid, false);
+                        if (job.TargetAsteroid.Diameter > SHIPSIZE) //Only if drill size is bigger than ship prevents array handlign issues
+                        {
+                            BoreMine(job.TargetAsteroid, false);
+                            _grid.Echo("Status: Mining");
+                        }
                         else
                             _grid.Echo("No Asteroid Detected, Drill array too large");
+
                     }
 
-                    _grid.Echo("Status: Mining");
-                    _grid.Echo(SHIP_DRILLS[0].GetInventory().MaxVolume + " Inventory Count"); // - SHIP_DRILLS[0].GetInventory().CurrentVolume + 
+                    _grid.Echo(SHIP_DRILLS.Sum(drill=>(double)drill.GetInventory().MaxVolume).ToString("0,000.00") + " Inventory Count"); // - SHIP_DRILLS[0].GetInventory().CurrentVolume + 
                 }
 
             }

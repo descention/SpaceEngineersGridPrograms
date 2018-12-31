@@ -20,8 +20,8 @@ namespace IngameScript
 
         public Program()
         {
-            //Sets Update Frequency
-            Runtime.UpdateFrequency = UpdateFrequency.Update10;
+            
+            
 
             try
             {
@@ -41,12 +41,17 @@ namespace IngameScript
                     miner = new MiningVessel(this);
                 }
 
-                if (miner.ISNOTBURIED)
-                    miner.Run();
+                miner.Run();
+
+                //Sets Update Frequency
+                Runtime.UpdateFrequency = UpdateFrequency.Update100;
             }
             catch (Exception ex)
             {
+                miner = null;
                 Echo(ex.Message);
+
+                Runtime.UpdateFrequency = UpdateFrequency.None;
             }
         }
 

@@ -6,19 +6,19 @@ namespace IngameScript
     {
         public class Asteroid
         {
-            public double Diameter { get; set; }
-            public int Row { get; set; }
-            public int Column { get; set; }
-            public Vector3D Centre { get; set; }
-            public Vector3D Location { get; set; }
+            public double Diameter { get; internal set; }
+            public Vector3D Centre { get; internal set; }
+            public Vector3D Location { get; internal set; }
 
             public Asteroid(Vector3D location)
             {
                 Centre = Location = location;
-                Row = 1;
-                Column = 1;
                 Diameter = 0.0;
             }
+
+            public double DistanceFromWaypointToCenter => (Centre - Location).Length();
+
+            public bool RequiresUpdate => Centre == Location;
 
             public void UpdateInfo(BoundingBoxD box)
             {
@@ -28,6 +28,9 @@ namespace IngameScript
 
             public bool AbleToMineFrom(Vector3D vesselPosition)
             {
+                if (Diameter == 0)
+                    return false;
+
                 //Toggles Should-be-Mining Based On Proximity
                 double Dist_To_Mine_Start = (Location - vesselPosition).Length();
                 double Dist_To_Mine_Centre = (Centre - vesselPosition).Length();
