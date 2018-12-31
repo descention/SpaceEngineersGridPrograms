@@ -20,9 +20,6 @@ namespace IngameScript
 
         public Program()
         {
-            
-            
-
             try
             {
                 if (!string.IsNullOrWhiteSpace(Storage))
@@ -33,7 +30,6 @@ namespace IngameScript
                     //sb.Append(Storage);
                     //System.IO.Stream stream =
                     //serializer.Deserialize(xmlWriter);
-
                 }
                 
                 if(miner == null)
@@ -44,7 +40,7 @@ namespace IngameScript
                 miner.Run();
 
                 //Sets Update Frequency
-                Runtime.UpdateFrequency = UpdateFrequency.Update100;
+                Runtime.UpdateFrequency = UpdateFrequency.Update10 | UpdateFrequency.Update100;
             }
             catch (Exception ex)
             {
@@ -57,22 +53,33 @@ namespace IngameScript
 
         public void Save()
         {
-            // Called when the program needs to save its state. Use
-            // this method to save your state to the Storage field
-            // or some other means. 
-            // 
-            // This method is optional and can be removed if not
-            // needed.
+            
         }
 
         public void Main(string argument, UpdateType updateSource)
         {
+            
+
             if (miner != null)
             {
+                if (updateSource == UpdateType.Antenna)
+                {
+
+                }
+
                 try
                 {
                     if (miner != null)
-                        miner.Run();
+                    {
+                        // run miner control
+                        if (updateSource == UpdateType.Update10)
+                            miner.Run();
+
+                        if(updateSource == UpdateType.Update100)
+                        { // update other miners of our progress
+                            miner.Broadcast();
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {

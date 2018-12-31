@@ -107,6 +107,11 @@ namespace IngameScript
                 { }
             }
 
+            internal void Broadcast()
+            {
+                throw new NotImplementedException();
+            }
+
             public void BoreMine(Asteroid asteroid, bool reset = false)
             {
                 _grid.Echo($"BoreMine: {job.Row}, {job.Column}");
@@ -226,6 +231,8 @@ namespace IngameScript
                 //    Echo("Drill Inventory Is Currently Full");
                 //if (IsEmpty)
                 //    Echo("Drill Inventory Is Currently Empty");
+                if(string.IsNullOrWhiteSpace(MiningStatus))
+                    MiningStatus = "MINE";
 
                 if (IsEmpty && MiningStatus != "FIN")
                     MiningStatus = "MINE";
