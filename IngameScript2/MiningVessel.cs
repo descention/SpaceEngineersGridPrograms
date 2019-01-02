@@ -31,8 +31,8 @@ namespace IngameScript
                     var XOrdered = positions.Select(t => t.X);
                     var YOrdered = positions.Select(t => t.Y);
 
-                    var width = Math.Abs(XOrdered.Max() - XOrdered.Min());
-                    var height = Math.Abs(YOrdered.Max() - YOrdered.Min());
+                    var width = Math.Abs(XOrdered.Max() - XOrdered.Min()) - 0.5;
+                    var height = Math.Abs(YOrdered.Max() - YOrdered.Min()) - 0.5;
                     return new Vector2D(width, height);
                 }
             }
@@ -132,6 +132,11 @@ namespace IngameScript
                 GridTerminalSystem.GetBlocksOfType(miner.ANTENNAS, b => b.CubeGrid == Me.CubeGrid);
             }
 
+            internal void Report(string v)
+            {
+                RC.CustomData = v;
+            }
+
             internal void Broadcast()
             {
                 /*
@@ -165,7 +170,14 @@ namespace IngameScript
 
             public void GetBroadcast(string configurationData)
             {
-                var otherShipJob = MiningJob.FromIni(configurationData);
+                var ini = new MyIni();
+                var result = new MyIniParseResult();
+                if (!ini.TryParse(configurationData, out result))
+                    throw new Exception($"{result.Error}|{result.LineNo}");
+
+                var otherShipJob = MiningJob.FromIni(ini);
+                if (otherShipJob == null)
+                    throw new Exception("Could not parse message: " + configurationData);
 
                 if(otherShipJob.TargetAsteroid.Location == job.TargetAsteroid.Location)
                 { // asteroid bros!
@@ -178,13 +190,13 @@ namespace IngameScript
                     if(job.Row == otherShipJob.Row && job.Column == otherShipJob.Column)
                     { // oh no! we need to fix this
                         // check for progress
+                        if (job.Progress > otherShipJob.Progress)
+                            return; // we're further along, let them back out
 
-                        // if I'm less far along, I should go back
-                        // if I didn't start, just pick the next option
-                        if (job.Progress < otherShipJob.Progress || job.Progress <= 0.0)
-                        {
-                            job.FinishedBore = true;
-                            if(job.Progress <= 0.0)
+                        // if we haven't started and aren't too close to the start
+                        if(job.Progress == 0.0 && job.GetDistanceFromBoreStart > 10)
+                        { // we still have time to change jobs
+                            if (job.GetDistanceFromBoreStart > otherShipJob.GetDistanceFromBoreStart)
                                 job.GotoNext();
                         }
                     }

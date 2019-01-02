@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Text;
 using VRage.Game.ModAPI.Ingame.Utilities;
 using VRageMath;
@@ -16,16 +17,21 @@ namespace IngameScript
             public bool FinishedBore { get; internal set; }
             internal Vector2D BoreSize{get;set;}
 
+            public List<Vector2I> CompletedSections = new List<Vector2I>();
+            
             public MiningJob(Asteroid asteroid, MiningVessel vessel)
             {
-                _vessel = vessel;
                 TargetAsteroid = asteroid;
                 Row = 0;
                 Column = 0;
-                BoreSize = _vessel.ShipMiningSize;
+                if (vessel != null)
+                {
+                    _vessel = vessel;
+                    BoreSize = _vessel.ShipMiningSize;
+                }
             }
 
-            public Vector3D CurrentVectorStart => (TargetAsteroid.Location + BoreSize.Y * (Row) * Math.Pow(-1, Row) * Up) + BoreSize.X * (Column) * Math.Pow(-1, Column) * Left;
+            public Vector3D CurrentVectorStart => (TargetAsteroid.Location + BoreSize.Y * (Row) * Up) + BoreSize.X * (Column) * Left;
             public Vector3D CurrentVectorEnd => CurrentVectorStart + Forward * (((TargetAsteroid.Centre - TargetAsteroid.Location).Length() - TargetAsteroid.Diameter / 2) + TargetAsteroid.Diameter * 0.8); //Accounts for small input
 
             /// <summary>
@@ -46,7 +52,7 @@ namespace IngameScript
             /// <summary>
             /// How many horizontal passes of the ship are required to eat the roid
             /// </summary>
-            public int Steps => Math.Max(1, (int)((TargetAsteroid.Diameter * 0.6666) / _vessel.SHIPSIZE));
+            public int Steps => Math.Max(1, (int)((TargetAsteroid.Diameter * 0.6666) / Math.Min(BoreSize.Y, BoreSize.X)));
 
             public bool IsValid => CurrentVectorStart != CurrentVectorEnd;
             
@@ -67,7 +73,8 @@ namespace IngameScript
                 {
                     if (_distanceFromStart.HasValue)
                         return _distanceFromStart.Value;
-                    return (CurrentVectorStart - _vessel.Position).Length();
+                    var distance = (CurrentVectorStart - _vessel.Position).Length();
+                    return distance >= 0.0 ? distance : double.MaxValue;
                 }
                 set
                 {
@@ -87,7 +94,14 @@ namespace IngameScript
                         return _progressFromIni.Value;
                     try
                     {
-                        return IsInsideAsteroidSoi ? 0.0 : FinishedBore ? 1.0 : GetDistanceFromBoreStart / (CurrentVectorStart - CurrentVectorEnd).Length();
+                        if(GetDistanceFromBoreEnd < (CurrentVectorStart - CurrentVectorEnd).Length())
+                        { // we're travelling the bore
+                            return FinishedBore ? 1.0 : (GetDistanceFromBoreStart / (CurrentVectorStart - CurrentVectorEnd).Length());
+                        }
+                        else
+                        { // outside the bore
+                            return 0.0;
+                        }
                     }
                     catch
                     {
@@ -104,20 +118,16 @@ namespace IngameScript
 
             public void GotoNext()
             {
-                if (Row == Steps && FinishedBore)
+                if (Row == Steps)
                 {
                     Column++;
                     Row = 1;
                     FinishedBore = false;
                 }
-                else if (FinishedBore)
+                else
                 {
                     Row++;
                     FinishedBore = false;
-                }
-                else
-                {
-
                 }
             }
 
@@ -127,7 +137,7 @@ namespace IngameScript
                 echo.AppendLine($"CurrentRoid: {Vector3D.Round(TargetAsteroid.Location)}");
                 echo.AppendLine($"CurrentCentre: {Vector3D.Round(TargetAsteroid.Centre)}");
                 echo.AppendLine($"CurrentRoidSize: {Math.Round(TargetAsteroid.Diameter)} Metres");
-                echo.AppendLine($"Ship size: {_vessel.SHIPSIZE}");
+                echo.AppendLine($"Bore size: {BoreSize}");
                 echo.AppendLine($"Steps: {Steps}");
                 echo.AppendLine($"Progress: {Progress * 100:000.00}%");
                 return echo.ToString();
@@ -151,25 +161,18 @@ namespace IngameScript
 
             public static MiningJob FromIni(MyIni ini, string section = nameof(MiningJob))
             {
-                try
-                {
-                    var target = Asteroid.FromIni(ini);
-                    if (target == null)
-                        return null;
-
-                    var job = new MiningJob(target, null);
-
-                    job.Row = ini.Get(section, nameof(job.Row)).ToInt32();
-                    job.Column = ini.Get(section, nameof(job.Column)).ToInt32();
-
-                    job.Progress = ini.Get(section, nameof(job.Progress)).ToDouble();
-                    job.GetDistanceFromBoreStart = ini.Get(section, nameof(job.GetDistanceFromBoreStart)).ToDouble();
-                    return job;
-                }
-                catch
-                {
+                var target = Asteroid.FromIni(ini);
+                if (target == null)
                     return null;
-                }
+
+                var job = new MiningJob(target, null);
+
+                job.Row = ini.Get(section, nameof(job.Row)).ToInt32();
+                job.Column = ini.Get(section, nameof(job.Column)).ToInt32();
+
+                job.Progress = ini.Get(section, nameof(job.Progress)).ToDouble();
+                job.GetDistanceFromBoreStart = ini.Get(section, nameof(job.GetDistanceFromBoreStart)).ToDouble();
+                return job;
             }
         }
     }

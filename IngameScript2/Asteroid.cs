@@ -68,32 +68,25 @@ namespace IngameScript
 
             public static Asteroid FromIni(MyIni ini, string section = nameof(Asteroid))
             {
-                try
-                {
-                    var LocX = ini.Get(section, "LocX").ToDouble();
-                    var LocY = ini.Get(section, "LocY").ToDouble();
-                    var LocZ = ini.Get(section, "LocZ").ToDouble();
+                var LocX = ini.Get(section, "LocX").ToDouble();
+                var LocY = ini.Get(section, "LocY").ToDouble();
+                var LocZ = ini.Get(section, "LocZ").ToDouble();
 
-                    var location = new Vector3D(LocX, LocY, LocZ);
-                    var asteroid = new Asteroid(location);
+                var location = new Vector3D(LocX, LocY, LocZ);
+                var asteroid = new Asteroid(location);
 
-                    var CenX = ini.Get(section, "CenX").ToDouble();
-                    var CenY = ini.Get(section, "CenY").ToDouble();
-                    var CenZ = ini.Get(section, "CenZ").ToDouble();
+                var CenX = ini.Get(section, "CenX").ToDouble();
+                var CenY = ini.Get(section, "CenY").ToDouble();
+                var CenZ = ini.Get(section, "CenZ").ToDouble();
 
-                    var centre = new Vector3D(CenX, CenY, CenZ);
+                var centre = new Vector3D(CenX, CenY, CenZ);
 
-                    if (location != centre)
-                        asteroid.Centre = centre; // update with known data
+                if (location != centre)
+                    asteroid.Centre = centre; // update with known data
 
-                    asteroid.Diameter = ini.Get(section, nameof(Diameter)).ToDouble();
+                asteroid.Diameter = ini.Get(section, nameof(Diameter)).ToDouble();
 
-                    return asteroid;
-                }
-                catch
-                {
-                    return null;
-                }
+                return asteroid;
             }
         }
     }

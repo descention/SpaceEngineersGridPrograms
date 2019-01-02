@@ -86,6 +86,7 @@ namespace IngameScript
                         Echo(ex.InnerException.Message);
                         Echo(ex.InnerException.StackTrace);
                     }
+                    miner.Report(ex.Message + ex.StackTrace);
                 }
             }
             else
