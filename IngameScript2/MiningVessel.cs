@@ -4,6 +4,7 @@ using System;
 using VRageMath;
 using System.Linq;
 using Sandbox.ModAPI.Interfaces;
+using VRage.Game.ModAPI.Ingame.Utilities;
 
 namespace IngameScript
 {
@@ -17,18 +18,27 @@ namespace IngameScript
             List<IMyCargoContainer> Cargo = new List<IMyCargoContainer>();
             List<IMyUserControllableGun> DIRECTIONAL_FIRE = new List<IMyUserControllableGun>();  //Directional ship weaponry
             List<IMyShipDrill> SHIP_DRILLS = new List<IMyShipDrill>();     //List Of all the ships drills
-
+            List<IMyRadioAntenna> ANTENNAS = new List<IMyRadioAntenna>();
             internal MiningJob job;
 
             public string MiningStatus { get; internal set; }
-            public bool FinishedBore { get; internal set; }
+            
 
             public MiningVessel(MyGridProgram grid) : base(grid)
             {
                 InitMiner(grid, this);
             }
 
-            public double SHIPSIZE => Math.Sqrt(SHIP_DRILLS.Count) * 0.9 * (_grid.Me.CubeGrid.ToString().Contains("Large") ? 1.5 : 1.0);
+            private double _shipSize = 0.0;
+            public double SHIPSIZE
+            {
+                get
+                {
+                    if (_shipSize == 0)
+                        _shipSize = Math.Sqrt(SHIP_DRILLS.Count) * 0.9 * (_grid.Me.CubeGrid.ToString().Contains("Large") ? 1.5 : 1.0);
+                    return _shipSize;
+                }
+            }
 
             private static void InitMiner(MyGridProgram grid, MiningVessel miner)
             {
@@ -105,11 +115,68 @@ namespace IngameScript
                 }
                 catch
                 { }
+
+                GridTerminalSystem.GetBlocksOfType(miner.ANTENNAS, b => b.CubeGrid == Me.CubeGrid);
             }
 
             internal void Broadcast()
             {
-                throw new NotImplementedException();
+                /*
+                let other ships know that you're working on a job
+                they need to know 
+                    where the job is at (asteroid center)
+                    what part of the job you're working on (Row, column)
+                    how far you are through the job 
+                        If bore in: (distance from start to ship position) / (distance from start to end)
+                        if bore out: 100%
+                broadcast distance should be 200% roid diameter
+
+                */
+                if (ANTENNAS.Any(t => t.IsWorking))
+                {
+                    var antenna = ANTENNAS.DefaultIfEmpty(null).First(t => t.IsWorking);
+                    if (antenna != null)
+                    {
+                        // increase the antenna radius if needed
+                        var desiredRadius = Math.Min((float)job.TargetAsteroid.Diameter * 2, 1000);
+                        var currentRadius = antenna.Radius;
+                        antenna.Radius = Math.Max(currentRadius, desiredRadius);
+                        antenna.TransmitMessage(job.ToIini(), MyTransmitTarget.Owned | MyTransmitTarget.Ally);
+
+                        // set radius back to 
+                        if (currentRadius != desiredRadius)
+                            antenna.Radius = currentRadius;
+                    }
+                }
+            }
+
+            public void GetBroadcast(string configurationData)
+            {
+                var otherShipJob = MiningJob.FromIni(configurationData);
+
+                if(otherShipJob.TargetAsteroid.Location == job.TargetAsteroid.Location)
+                { // asteroid bros!
+
+                    // check for info they have that we don't
+                    if (job.TargetAsteroid.RequiresUpdate && !otherShipJob.TargetAsteroid.RequiresUpdate)
+                        job.TargetAsteroid.UpdateInfo(otherShipJob.TargetAsteroid);
+
+                    // check to see if we're working on the same task
+                    if(job.Row == otherShipJob.Row && job.Column == otherShipJob.Column)
+                    { // oh no! we need to fix this
+                        // check for progress
+
+                        // if I'm less far along, I should go back
+                        // if I didn't start, just pick the next option
+                        if (job.Progress < otherShipJob.Progress || job.Progress <= 0.0)
+                        {
+                            job.FinishedBore = true;
+                            if(job.Progress <= 0.0)
+                                job.GotoNext();
+                        }
+                    }
+
+                }
             }
 
             public void BoreMine(Asteroid asteroid, bool reset = false)
@@ -136,13 +203,13 @@ namespace IngameScript
 
                 //Sets IsBuried And Has Finished
                 if (job.GetDistanceFromBoreEnd < 1)
-                    FinishedBore = true; //If Reached End Toggle Finished
+                    job.FinishedBore = true; //If Reached End Toggle Finished
 
                 //Inputs To Autopilot Function
                 double RollReqt = (float)(0.6 * (Vector3D.Dot(job.Up, RC.WorldMatrix.Down)));
                 GyroTurn6(job.Forward * 999999999999999999, RotationalSensitvity, GYRO, RC, RollReqt, PrecisionMaxAngularVel);
 
-                if (FinishedBore) //Reverses Once Finished
+                if (job.FinishedBore) //Reverses Once Finished
                 {
                     _grid.Echo("Bore out");
                     Vector_Thrust_Manager(job.CurrentVectorEnd, job.CurrentVectorStart, Position, 2, 0.5, RC);
@@ -150,28 +217,22 @@ namespace IngameScript
                 else //else standard forward
                 {
                     _grid.Echo("Bore in");
-                    Vector_Thrust_Manager(job.CurrentVectorStart, job.CurrentVectorEnd, Position, 1, 0.5, RC);
+                    List<MyDetectedEntityInfo> entities = new List<MyDetectedEntityInfo>();
+                    SENSOR.DetectedEntities(entities);
+                    var asteroids = entities.Where(t => t.Type == MyDetectedEntityType.Asteroid);
+
+                    Vector_Thrust_Manager(job.CurrentVectorStart, job.CurrentVectorEnd, Position, asteroids.Any() ? 1 : 10, asteroids.Any() ? 0.5 : 5, RC);
                 }
 
                 //Iterates Based On Proximity
                 if (job.GetDistanceFromBoreStart < 1) {
-                    if (job.Row == job.Steps && job.Column == job.Steps && FinishedBore)
+                    if (job.Complete)
                     {
                         MiningStatus = "FIN";
                         return;
                     }
 
-                    if ( job.Row == job.Steps && FinishedBore)
-                    {
-                        job.Column++;
-                        job.Row = 1;
-                        FinishedBore = false;
-                    }
-                    else if (FinishedBore)
-                    {
-                        job.Row++;
-                        FinishedBore = false;
-                    }
+                    job.GotoNext();
                 }
             }
 
@@ -239,7 +300,7 @@ namespace IngameScript
                 else if (IsMassAboveThreshold && MiningStatus != "FIN")
                 {
                     MiningStatus = "FULL";
-                    FinishedBore = true;
+                    job.FinishedBore = true;
                 }
 
                 //Updates A Sensor If Ship Has One
@@ -328,14 +389,15 @@ namespace IngameScript
                     //If No Asteroid Detected Goes To Location To Detect Asteroid
                     if (job.TargetAsteroid.Diameter == 0)
                     {
-                        RC_Manager(job.TargetAsteroid.Location, RC, false);
+                        _grid.Echo("Target needs update, travelling to asteroid location");
+                        RC_Manager(job.TargetAsteroid.Location, RC);
                         return; //No Need For Remainder Of Logic
                     }
 
                     //Goes To Location And Mines
-                    if (job.TargetAsteroid.AbleToMineFrom(RC.GetPosition()) == false && !job.IsInsideAsteroidSoi)
+                    if (job.TargetAsteroid.AbleToMineFrom(RC.GetPosition()) == false && !job.IsInsideAsteroidSoi && job.GetDistanceFromBoreEnd > 4)
                     {
-                        RC_Manager(job.TargetAsteroid.Location, RC, false);
+                        RC_Manager(job.TargetAsteroid.Location, RC);
                         _grid.Echo("Status: Locating");
                     }
                     else
@@ -347,7 +409,6 @@ namespace IngameScript
                         }
                         else
                             _grid.Echo("No Asteroid Detected, Drill array too large");
-
                     }
 
                     _grid.Echo(SHIP_DRILLS.Sum(drill=>(double)drill.GetInventory().MaxVolume).ToString("0,000.00") + " Inventory Count"); // - SHIP_DRILLS[0].GetInventory().CurrentVolume + 

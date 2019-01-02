@@ -5,6 +5,7 @@ using System;
 using VRage.Game.ModAPI.Ingame;
 using VRageMath;
 using System.Linq;
+using VRage.Game.ModAPI.Ingame.Utilities;
 
 namespace IngameScript
 {
@@ -18,7 +19,7 @@ namespace IngameScript
             protected IMyRemoteControl RC;
             protected IMyShipConnector CONNECTOR;
             protected IMySensorBlock SENSOR;
-            protected IMyGyro GYRO;
+            protected IEnumerable<IMyGyro> GYRO;
             internal int COORD_ID = 0;
             internal List<Vector3D> DOCK_ROUTE = new List<Vector3D>();
 
@@ -42,8 +43,8 @@ namespace IngameScript
                     new Exception("No Connector Found,\nInstall Connector And Press Recompile ");
                 if (SENSOR == null || SENSOR.CubeGrid.GetCubeBlock(SENSOR.Position) == null)
                     new Exception("No Sensor Found,\nInstall Sensor For Asteroid Detection And Press Recompile,\n(all sensor settings will automatically be set)");
-                if (GYRO == null || GYRO.CubeGrid.GetCubeBlock(GYRO.Position) == null)
-                    new Exception("No Gyro Found,\nInstall Gyro And Press Recompile");
+                if (GYRO == null || GYRO.Any(g=>g.CubeGrid.GetCubeBlock(g.Position) == null))
+                    new Exception("Gyro Error,\nInstall gyro if missing and press Recompile");
 
                 if (CAF2_THRUST.Count > 15)
                 {
@@ -90,7 +91,7 @@ namespace IngameScript
                 {
                     List<IMyGyro> TEMP_GYRO = new List<IMyGyro>();
                     GridTerminalSystem.GetBlocksOfType(TEMP_GYRO, b => b.CubeGrid == Me.CubeGrid);
-                    vessel.GYRO = TEMP_GYRO[0];
+                    vessel.GYRO = TEMP_GYRO;
                 }
                 catch { }
 
@@ -143,24 +144,26 @@ namespace IngameScript
             bool C_A_F_HASRUN = false;
             double CAF2_BRAKING_COUNT = 99999999;
 
-            double CAF_SHIP_DECELLERATION;                        //Outputs current decelleration
-            double CAF_STOPPING_DIST;                             //Outputs current stopping distance
-            double CAF_DIST_TO_TARGET;                            //Outputs distance to target
-
             void CollectAndFire2(Vector3D INPUT_POINT, double INPUT_VELOCITY, double INPUT_MAX_VELOCITY, Vector3D REFPOS, IMyRemoteControl RC)
             {
                 var GridTerminalSystem = _grid.GridTerminalSystem;
                 var Me = _grid.Me;
                 var Echo = _grid.Echo;
-
+                
                 //Function Initialisation
                 //-------------------------------------------------------------------- 
+                if(CAF2_FORWARD == null)
+                    CAF2_FORWARD = new Thrust_info(RC.WorldMatrix.Forward, GridTerminalSystem, Me.CubeGrid);
+
+                if(CAF2_UP == null)
+                    CAF2_UP = new Thrust_info(RC.WorldMatrix.Up, GridTerminalSystem, Me.CubeGrid);
+
+                if(CAF2_RIGHT == null)
+                    CAF2_RIGHT = new Thrust_info(RC.WorldMatrix.Right, GridTerminalSystem, Me.CubeGrid);
+
                 if (C_A_F_HASRUN == false)
                 {
                     //Initialise Classes And Basic System
-                    CAF2_FORWARD = new Thrust_info(RC.WorldMatrix.Forward, GridTerminalSystem, Me.CubeGrid);
-                    CAF2_UP = new Thrust_info(RC.WorldMatrix.Up, GridTerminalSystem, Me.CubeGrid);
-                    CAF2_RIGHT = new Thrust_info(RC.WorldMatrix.Right, GridTerminalSystem, Me.CubeGrid);
                     CAFTHI = new List<Thrust_info>() { CAF2_FORWARD, CAF2_UP, CAF2_RIGHT };
                     GridTerminalSystem.GetBlocksOfType<IMyThrust>(CAF2_THRUST, block => block.CubeGrid == Me.CubeGrid);
                     C_A_F_HASRUN = true;
@@ -179,9 +182,15 @@ namespace IngameScript
                 double SHIPMASS = Convert.ToDouble(RC.CalculateShipMass().PhysicalMass);
                 Vector3D INPUT_VECTOR = Vector3D.Normalize(INPUT_POINT - REFPOS);
                 double VELOCITY = RC.GetShipSpeed();
-                CAF_DIST_TO_TARGET = (REFPOS - INPUT_POINT).Length();
-                CAF_SHIP_DECELLERATION = 0.75 * (CAF2_BRAKING_COUNT / SHIPMASS);
-                CAF_STOPPING_DIST = (((VELOCITY * VELOCITY) - (INPUT_VELOCITY * INPUT_VELOCITY))) / (2 * CAF_SHIP_DECELLERATION);
+
+                //Outputs distance to target
+                double CAF_DIST_TO_TARGET = (REFPOS - INPUT_POINT).Length();
+
+                //Outputs current decelleration
+                double CAF_SHIP_DECELLERATION = 0.75 * (CAF2_BRAKING_COUNT / SHIPMASS);
+
+                //Outputs current stopping distance
+                double CAF_STOPPING_DIST = (((VELOCITY * VELOCITY) - (INPUT_VELOCITY * INPUT_VELOCITY))) / (2 * CAF_SHIP_DECELLERATION);
 
                 //If Within Stopping Distance Halts Programme
                 //--------------------------------------------
@@ -268,7 +277,7 @@ namespace IngameScript
                 }
             }
 
-            protected static void GyroTurn6(Vector3D TARGET, double GAIN, IMyGyro GYRO, IMyRemoteControl REF_RC, double ROLLANGLE, double MAXANGULARVELOCITY)
+            protected static void GyroTurn6(Vector3D TARGET, double GAIN, IEnumerable<IMyGyro> GYRO, IMyRemoteControl REF_RC, double ROLLANGLE, double MAXANGULARVELOCITY)
             {
                 //Ensures Autopilot Not Functional
                 REF_RC.SetAutoPilotEnabled(false);
@@ -292,14 +301,17 @@ namespace IngameScript
                 //Does Some Rotations To Provide For any Gyro-Orientation
                 var RC_Matrix = REF_RC.WorldMatrix.GetOrientation();
                 var Vector = Vector3.Transform((new Vector3D(ShipForwardElevation, ShipForwardAzimuth, ROLLANGLE)), RC_Matrix); //Converts To World
-                var TRANS_VECT = Vector3.Transform(Vector, Matrix.Transpose(GYRO.WorldMatrix.GetOrientation()));  //Converts To Gyro Local
+                foreach (var gyro in GYRO)
+                {
+                    var TRANS_VECT = Vector3.Transform(Vector, Matrix.Transpose(gyro.WorldMatrix.GetOrientation()));  //Converts To Gyro Local
 
-                //Applies To Scenario
-                GYRO.Pitch = (float)MathHelper.Clamp((-TRANS_VECT.X * GAIN), -MAXANGULARVELOCITY, MAXANGULARVELOCITY);
-                GYRO.Yaw = (float)MathHelper.Clamp(((-TRANS_VECT.Y) * GAIN), -MAXANGULARVELOCITY, MAXANGULARVELOCITY);
-                GYRO.Roll = (float)MathHelper.Clamp(((-TRANS_VECT.Z) * GAIN), -MAXANGULARVELOCITY, MAXANGULARVELOCITY);
-                GYRO.GyroOverride = true;
-
+                    //Applies To Scenario
+                    gyro.Pitch = (float)MathHelper.Clamp((-TRANS_VECT.X * GAIN), -MAXANGULARVELOCITY, MAXANGULARVELOCITY);
+                    gyro.Yaw = (float)MathHelper.Clamp(((-TRANS_VECT.Y) * GAIN), -MAXANGULARVELOCITY, MAXANGULARVELOCITY);
+                    gyro.Roll = (float)MathHelper.Clamp(((-TRANS_VECT.Z) * GAIN), -MAXANGULARVELOCITY, MAXANGULARVELOCITY);
+                    gyro.GyroOverride = true;
+                }
+                
                 //GYRO.SetValueFloat("Pitch", (float)((TRANS_VECT.X) * GAIN));     
                 //GYRO.SetValueFloat("Yaw", (float)((-TRANS_VECT.Y) * GAIN));
                 //GYRO.SetValueFloat("Roll", (float)((-TRANS_VECT.Z) * GAIN));
@@ -327,7 +339,8 @@ namespace IngameScript
                 {
                     //for (int j = 0; j < CAF2_THRUST.Count; j++)
                     //{(CAF2_THRUST[j] as IMyThrust).Enabled = false; }
-                    GYRO.GyroOverride = false;
+                    foreach (var gyro in GYRO)
+                        gyro.GyroOverride = false;
                     return;
                 }
 
@@ -382,15 +395,22 @@ namespace IngameScript
                 return RC.WorldMatrix.Down;
             }
 
-            protected static void RC_Manager(Vector3D TARGET, IMyRemoteControl RC, bool TURN_ONLY = false)
+            protected void RC_Manager(Vector3D TARGET, IMyRemoteControl RC, bool TURN_ONLY = false)
             {
                 //Uses Rotation Control To Handle Max Rotational Velocity
                 //---------------------------------------------------------
+                // _grid.Echo($"RotVel: {RC.GetShipVelocities().AngularVelocity.AbsMax()} / {PrecisionMaxAngularVel}");
                 if (RC.GetShipVelocities().AngularVelocity.AbsMax() > PrecisionMaxAngularVel)
                 {
-                    //_grid.Echo("Slowing Rotational Velocity");
+                    _grid.Echo("Slowing Rotational Velocity");
                     if (RC.IsAutoPilotEnabled)
+                    {
                         RC.SetAutoPilotEnabled(false);
+
+                        // update gyro power to limit max rotation
+                        foreach (var gyro in GYRO)
+                            gyro.GyroPower -= 0.01f;
+                    }
                     return;
                 }
 
@@ -403,16 +423,18 @@ namespace IngameScript
                 //-------------------------------
                 double To_Target_Angle = Vector3D.Dot(Vector3D.Normalize(RC.GetShipVelocities().LinearVelocity), Drone_To_Target);
                 double Ship_Velocity = RC.GetShipVelocities().LinearVelocity.Length();
-
+                List<MyWaypointInfo> waypoints = new List<MyWaypointInfo>();
+                RC.GetWaypointInfo(waypoints);
                 //Turn Only: (Will drift ship automatically)
                 //--------------------------------------------
                 if (TURN_ONLY)
                 {
+                    _grid.Echo("Turning");
                     RC.ClearWaypoints();
                     RC.AddWaypoint(TARGET, "1");
-                    RC.AddWaypoint(TARGET, "cc1");
+                    RC.FlightMode = FlightMode.OneWay;
                     if (!RC.IsAutoPilotEnabled)
-                        RC.ApplyAction("AutoPilot_On");
+                        RC.SetAutoPilotEnabled(true);
                     RC.ApplyAction("CollisionAvoidance_Off");
                     RC.ControlThrusters = false;
                     return;
@@ -420,9 +442,9 @@ namespace IngameScript
 
                 //Drift Cancellation Enabled:
                 //-----------------------------
-                if (To_Target_Angle < 0.4 && Ship_Velocity > 3)
+                else if (To_Target_Angle < 0.4 && Ship_Velocity > 3)
                 {
-                    //_grid.Echo("Drift Cancellation Enabled");
+                    _grid.Echo("Drift Cancellation Enabled");
 
                     //Aim Gyro To Reflected Vector
                     Vector3D DRIFT_VECTOR = Vector3D.Normalize(RC.GetShipVelocities().LinearVelocity);
@@ -432,8 +454,9 @@ namespace IngameScript
                     //Sets Autopilot To Turn
                     RC.ClearWaypoints();
                     RC.AddWaypoint(AIMPINGPOS, "1");
-                    RC.AddWaypoint(AIMPINGPOS, "cc1");
-                    RC.ApplyAction("AutoPilot_On");
+                    RC.FlightMode = FlightMode.OneWay;
+                    if (!RC.IsAutoPilotEnabled)
+                        RC.SetAutoPilotEnabled(true);
                     RC.ApplyAction("CollisionAvoidance_Off");
 
                 }
@@ -442,19 +465,33 @@ namespace IngameScript
                 //---------------------------
                 else
                 {
-                    //_grid.Echo("Drift Cancellation Disabled");
+                    _grid.Echo("Drift Cancellation Disabled");
 
-                    //Assign To RC, Clear And Refresh Command                         
-                    RC.ClearWaypoints();
+                    //Assign To RC, Clear And Refresh Command
+                    
+                    if(!waypoints.Any() || RC.CurrentWaypoint.Coords != TARGET)
+                    {
+                        RC.ClearWaypoints();
+                        RC.AddWaypoint(TARGET, "1");
+                    }
+                    
                     RC.ControlThrusters = true;
-                    RC.AddWaypoint(TARGET, "1");
-                    RC.AddWaypoint(TARGET, "cc1");
-                    if(!RC.IsAutoPilotEnabled)
-                        RC.ApplyAction("AutoPilot_On");             //RC toggle 
+                    RC.FlightMode = FlightMode.OneWay;
+
+                    if (!RC.IsAutoPilotEnabled)
+                        RC.SetAutoPilotEnabled(true);
                     RC.ApplyAction("DockingMode_Off");              //Precision Mode
                     RC.ApplyAction("CollisionAvoidance_On");        //Col avoidance
 
                 }
+            }
+
+            public string ToIni()
+            {
+                var ini = new MyIni();
+                ini.Set("Vessel", "RC", $"{RC.Position}");
+
+                return ini.ToString();
             }
         }
     }

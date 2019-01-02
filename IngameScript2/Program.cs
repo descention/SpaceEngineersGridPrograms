@@ -37,8 +37,6 @@ namespace IngameScript
                     miner = new MiningVessel(this);
                 }
 
-                miner.Run();
-
                 //Sets Update Frequency
                 Runtime.UpdateFrequency = UpdateFrequency.Update10 | UpdateFrequency.Update100;
             }
@@ -53,7 +51,7 @@ namespace IngameScript
 
         public void Save()
         {
-            
+            Storage = miner.ToIni();
         }
 
         public void Main(string argument, UpdateType updateSource)
@@ -62,23 +60,21 @@ namespace IngameScript
 
             if (miner != null)
             {
-                if (updateSource == UpdateType.Antenna)
-                {
-
-                }
+                
 
                 try
                 {
                     if (miner != null)
                     {
-                        // run miner control
-                        if (updateSource == UpdateType.Update10)
-                            miner.Run();
 
-                        if(updateSource == UpdateType.Update100)
-                        { // update other miners of our progress
-                            miner.Broadcast();
-                        }
+                        if (updateSource == UpdateType.Antenna)
+                            miner.GetBroadcast(argument); // parse info from other miners
+
+                        else if (updateSource == UpdateType.Update10)
+                            miner.Run(); // run miner control
+
+                        else if (updateSource == UpdateType.Update100)
+                            miner.Broadcast(); // update other miners of our progress
                     }
                 }
                 catch (Exception ex)
