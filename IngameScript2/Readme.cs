@@ -1,8 +1,8 @@
 ﻿/*
  *   R e a d m e
  *   -----------
- * 
- *   In this file you can include any instructions or other comments you want to have injected onto the 
- *   top of your final script. You can safely delete this file if you do not want any such comments.
+ *   Most of this code is the work of RDav, as far as I'm aware. I've made a few changes for multiple miners to work on the same asteroid
+ *   
+ *   
  * 
  */
