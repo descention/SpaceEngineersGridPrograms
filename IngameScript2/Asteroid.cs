@@ -1,4 +1,5 @@
-﻿using VRageMath;
+﻿using VRage.Game.ModAPI.Ingame.Utilities;
+using VRageMath;
 
 namespace IngameScript
 {
@@ -48,50 +49,46 @@ namespace IngameScript
                     return false;
             }
 
-            public string ToIni()
+            public string ToIni(MyIni ini = null, string section = nameof(Asteroid))
             {
-                var ini = new VRage.Game.ModAPI.Ingame.Utilities.MyIni();
-                ini.Set(nameof(Asteroid), "LocX", Location.X);
-                ini.Set(nameof(Asteroid), "LocY", Location.Y);
-                ini.Set(nameof(Asteroid), "LocZ", Location.Z);
+                if (ini == null)
+                    ini = new MyIni();
+                ini.Set(section, "LocX", Location.X);
+                ini.Set(section, "LocY", Location.Y);
+                ini.Set(section, "LocZ", Location.Z);
 
-                ini.Set(nameof(Asteroid), "CenX", Centre.X);
-                ini.Set(nameof(Asteroid), "CenY", Centre.Y);
-                ini.Set(nameof(Asteroid), "CenZ", Centre.Z);
+                ini.Set(section, "CenX", Centre.X);
+                ini.Set(section, "CenY", Centre.Y);
+                ini.Set(section, "CenZ", Centre.Z);
 
-                ini.Set(nameof(Asteroid), nameof(Diameter), Diameter);
+                ini.Set(section, nameof(Diameter), Diameter);
 
                 return ini.ToString();
             }
 
-            public static Asteroid TryParseFromIni(string configurationData)
+            public static Asteroid FromIni(MyIni ini, string section = nameof(Asteroid))
             {
                 try
                 {
-                    var ini = new VRage.Game.ModAPI.Ingame.Utilities.MyIni();
-                    if (ini.TryParse(configurationData))
-                    {
-                        var LocX = ini.Get(nameof(Asteroid), "LocX").ToDouble();
-                        var LocY = ini.Get(nameof(Asteroid), "LocY").ToDouble();
-                        var LocZ = ini.Get(nameof(Asteroid), "LocZ").ToDouble();
+                    var LocX = ini.Get(section, "LocX").ToDouble();
+                    var LocY = ini.Get(section, "LocY").ToDouble();
+                    var LocZ = ini.Get(section, "LocZ").ToDouble();
 
-                        var location = new Vector3D(LocX, LocY, LocZ);
-                        var asteroid = new Asteroid(location);
+                    var location = new Vector3D(LocX, LocY, LocZ);
+                    var asteroid = new Asteroid(location);
 
-                        var CenX = ini.Get(nameof(Asteroid), "CenX").ToDouble();
-                        var CenY = ini.Get(nameof(Asteroid), "CenY").ToDouble();
-                        var CenZ = ini.Get(nameof(Asteroid), "CenZ").ToDouble();
+                    var CenX = ini.Get(section, "CenX").ToDouble();
+                    var CenY = ini.Get(section, "CenY").ToDouble();
+                    var CenZ = ini.Get(section, "CenZ").ToDouble();
 
-                        var centre = new Vector3D(CenX, CenY, CenZ);
+                    var centre = new Vector3D(CenX, CenY, CenZ);
 
-                        if (location != centre)
-                            asteroid.Centre = centre; // update with known data
+                    if (location != centre)
+                        asteroid.Centre = centre; // update with known data
 
-                        asteroid.Diameter = ini.Get(nameof(Asteroid), nameof(Diameter)).ToDouble();
+                    asteroid.Diameter = ini.Get(section, nameof(Diameter)).ToDouble();
 
-                        return asteroid;
-                    }
-                    return null;
+                    return asteroid;
                 }
                 catch
                 {

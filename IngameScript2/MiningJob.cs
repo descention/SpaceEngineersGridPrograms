@@ -14,6 +14,7 @@ namespace IngameScript
             public int Column { get; set; }
             internal MiningVessel _vessel;
             public bool FinishedBore { get; internal set; }
+            internal Vector2D BoreSize{get;set;}
 
             public MiningJob(Asteroid asteroid, MiningVessel vessel)
             {
@@ -21,9 +22,10 @@ namespace IngameScript
                 TargetAsteroid = asteroid;
                 Row = 0;
                 Column = 0;
+                BoreSize = _vessel.ShipMiningSize;
             }
 
-            public Vector3D CurrentVectorStart => (TargetAsteroid.Location + _vessel.SHIPSIZE * (Row - 1) * Math.Pow(-1, Row) * Up) + _vessel.SHIPSIZE * (Column - 1) * Math.Pow(-1, Column) * Left;
+            public Vector3D CurrentVectorStart => (TargetAsteroid.Location + BoreSize.Y * (Row) * Math.Pow(-1, Row) * Up) + BoreSize.X * (Column) * Math.Pow(-1, Column) * Left;
             public Vector3D CurrentVectorEnd => CurrentVectorStart + Forward * (((TargetAsteroid.Centre - TargetAsteroid.Location).Length() - TargetAsteroid.Diameter / 2) + TargetAsteroid.Diameter * 0.8); //Accounts for small input
 
             /// <summary>
@@ -131,37 +133,43 @@ namespace IngameScript
                 return echo.ToString();
             }
 
-            public string ToIini()
+            public string ToIini(MyIni ini = null, string section = nameof(MiningJob))
             {
-                var ini = new MyIni();
+                if (ini == null)
+                    ini = new MyIni();
 
-                ini.Set(nameof(MiningJob), nameof(Row), Row);
-                ini.Set(nameof(MiningJob), nameof(Column), Column);
+                ini.Set(section, nameof(Row), Row);
+                ini.Set(section, nameof(Column), Column);
 
-                ini.Set(nameof(MiningJob), nameof(Progress), Progress);
-                ini.Set(nameof(MiningJob), nameof(GetDistanceFromBoreStart), GetDistanceFromBoreStart);
+                ini.Set(section, nameof(Progress), Progress);
+                ini.Set(section, nameof(GetDistanceFromBoreStart), GetDistanceFromBoreStart);
 
-                return ini.ToString() + Environment.NewLine + TargetAsteroid.ToIni();
+                TargetAsteroid.ToIni(ini);
+
+                return ini.ToString();
             }
 
-            public static MiningJob FromIni(string configurationData)
+            public static MiningJob FromIni(MyIni ini, string section = nameof(MiningJob))
             {
-                var ini = new MyIni();
-                if (ini.TryParse(configurationData))
+                try
                 {
-                    var target = Asteroid.TryParseFromIni(configurationData);
+                    var target = Asteroid.FromIni(ini);
                     if (target == null)
                         return null;
 
                     var job = new MiningJob(target, null);
-                    job.Row = ini.Get(nameof(MiningJob), nameof(job.Row)).ToInt32();
-                    job.Column = ini.Get(nameof(MiningJob), nameof(job.Column)).ToInt32();
-                    
-                    job.Progress = ini.Get(nameof(MiningJob), nameof(job.Progress)).ToDouble();
-                    job.GetDistanceFromBoreStart = ini.Get(nameof(MiningJob), nameof(job.GetDistanceFromBoreStart)).ToDouble();
+
+                    job.Row = ini.Get(section, nameof(job.Row)).ToInt32();
+                    job.Column = ini.Get(section, nameof(job.Column)).ToInt32();
+
+                    job.Progress = ini.Get(section, nameof(job.Progress)).ToDouble();
+                    job.GetDistanceFromBoreStart = ini.Get(section, nameof(job.GetDistanceFromBoreStart)).ToDouble();
                     return job;
                 }
-                return null;
+                catch
+                {
+                    return null;
+                }
             }
         }
     }

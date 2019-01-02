@@ -23,6 +23,19 @@ namespace IngameScript
 
             public string MiningStatus { get; internal set; }
             
+            public Vector2D ShipMiningSize
+            {
+                get
+                {
+                    var positions = SHIP_DRILLS.Select(t => t.Position);
+                    var XOrdered = positions.Select(t => t.X);
+                    var YOrdered = positions.Select(t => t.Y);
+
+                    var width = Math.Abs(XOrdered.Max() - XOrdered.Min());
+                    var height = Math.Abs(YOrdered.Max() - YOrdered.Min());
+                    return new Vector2D(width, height);
+                }
+            }
 
             public MiningVessel(MyGridProgram grid) : base(grid)
             {
